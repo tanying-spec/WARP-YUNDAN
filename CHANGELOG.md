@@ -1,5 +1,10 @@
 # 更新记录
 
+## v1.1.1
+
+- 新增两字母短命令 `wy`，无参数运行直接进入代理接入菜单；原有 `warp-yundan` 命令保持兼容。
+- 安装和升级时仅在 `/usr/local/sbin/wy` 未被占用时创建链接，卸载时只删除本项目拥有的链接。
+
 ## v1.1.0
 
 - 增加可选 `proxy attach/status/check/detach`，支持 Mihomo / sing-box 单文件直连出口服务端配置。

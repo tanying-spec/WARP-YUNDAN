@@ -1,10 +1,11 @@
 #!/bin/sh
 # WARP-YUNDAN: independent kernel WireGuard egress, not a default-route VPN.
 set -efu
-VERSION=1.1.0
+VERSION=1.1.1
 HELPER_SHA256=6bb1e34fa017730e4be488526c7508a6894dc690a61e3bb2c1ed42958de86410
 DIR=/etc/warp-yundan
 BIN=/usr/local/sbin/warp-yundan
+ALIAS=/usr/local/sbin/wy
 IFACE=wywarp
 TABLE=51889
 PREF=18589
@@ -23,6 +24,16 @@ lock() {
 }
 owned() { [ "$(cat "$DIR/owner" 2>/dev/null)" = WARP-YUNDAN-v1 ]; }
 interface_owned() { ip -d link show "$IFACE" 2>/dev/null | grep -q 'alias WARP-YUNDAN-v1$'; }
+install_alias() {
+    if [ -e "$ALIAS" ] || [ -L "$ALIAS" ]; then
+        [ "$(readlink -f "$ALIAS" 2>/dev/null)" = "$BIN" ] || die "$ALIAS 已被其他程序占用，拒绝覆盖。"
+    else
+        ln -s "$BIN" "$ALIAS"
+    fi
+}
+remove_alias() {
+    if [ -L "$ALIAS" ] && [ "$(readlink -f "$ALIAS" 2>/dev/null)" = "$BIN" ]; then rm -f "$ALIAS"; fi
+}
 stop_tunnel() {
     owned || return 0
     if ip link show "$IFACE" >/dev/null 2>&1; then
@@ -318,6 +329,7 @@ install() {
     [ ! -e "$DIR" ] || owned || die "$DIR 已存在但不属于本项目。"
     if [ -e "$DIR/installed" ]; then
         if [ "$(readlink -f "$0")" != "$BIN" ]; then cp "$0" "$BIN"; chmod 755 "$BIN"; fi
+        install_alias
         say "管理命令已更新到 $VERSION，保留原账号、隧道和代理配置。"
         return 0
     fi
@@ -337,6 +349,7 @@ install() {
     mkdir -p /usr/local/sbin
     cp "$0" "$BIN"
     chmod 755 "$BIN"
+    install_alias
     stop_tunnel
     service_install
     # Release lock before asking the service manager to invoke this script.
@@ -373,6 +386,7 @@ uninstall() {
         fi
     fi
     # Retain credentials for reinstall; never remove unrelated packages/accounts.
+    remove_alias
     rm -f "$DIR/installed" "$DIR/service-owned" "$BIN"
     say "已移除隧道、启动服务和管理命令；账号保留于 $DIR（root-only），便于重装复用。"
 }
@@ -381,11 +395,11 @@ usage() {
     say '安装：sh install.sh install --accept-tos [--wgcf /path/to/verified-binary]'
     say '导入：sh install.sh install --profile /path/to/wgcf-profile.conf'
     say '管理：warp-yundan start|stop|restart|status|check|uninstall'
-    say '代理接入：warp-yundan proxy（交互菜单）或 proxy attach --mode hybrid|all'
+    say '代理接入：wy（交互菜单）或 warp-yundan proxy attach --mode hybrid|all'
     say '不提供 SOCKS5 端口，不替换默认路由，不自动接管现有代理。'
 }
 main() {
-    action=${1:-help}; [ "$#" = 0 ] || shift
+    if [ "$#" = 0 ] && [ "$(basename "$0")" = wy ]; then action=proxy; else action=${1:-help}; [ "$#" = 0 ] || shift; fi
     case "$action" in help|--help|-h) usage; return ;; esac
     root_only
     case "$action" in
