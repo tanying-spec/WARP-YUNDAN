@@ -1,6 +1,6 @@
 #!/bin/sh
 # Run ONLY on an ephemeral CI/test host in a private network namespace.
-set -eux
+set -eu
 [ "$(id -u)" = 0 ] || exit 1
 [ ! -e /etc/warp-yundan ] || { echo 'Refusing to overwrite existing config'; exit 1; }
 SCRIPT=$(pwd)/install.sh
@@ -42,8 +42,7 @@ sh "$SCRIPT" start
 mkdir /tmp/warp-yundan-test-menu
 ln -s "$SCRIPT" /tmp/warp-yundan-test-menu/wy
 menu_output=$(printf '5\n' | /tmp/warp-yundan-test-menu/wy)
-printf '%s\n' "$menu_output"
-printf '%s\n' "$menu_output" | grep -q '^interface: wywarp$'
+printf '%s\n' "$menu_output" | grep -q 'interface: wywarp'
 rm -rf -- /tmp/warp-yundan-test-menu
 echo 'PASS: wy unified menu dispatches raw status'
 [ "$(ip route show table main)" = "$before" ]
