@@ -1,0 +1,7 @@
+mixed-port: 18790
+allow-lan: false
+mode: rule
+ipv6: true
+log-level: warning
+rules:
+  - MATCH,DIRECT

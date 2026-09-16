@@ -6,6 +6,7 @@ set -eu
 SCRIPT=$(pwd)/install.sh
 mkdir -m 700 /etc/warp-yundan
 cleanup() {
+    sh "$SCRIPT" _proxy-route-off || true
     sh "$SCRIPT" stop || true
     rm -f /etc/warp-yundan/owner /etc/warp-yundan/tunnel.conf /etc/warp-yundan/addresses /etc/warp-yundan/endpoint /etc/warp-yundan/listen-port
     rmdir /etc/warp-yundan
@@ -22,8 +23,10 @@ printf '0\n' >/etc/warp-yundan/listen-port
 ip link set lo up
 ip link add testnative type dummy
 ip addr add 192.0.2.2/24 dev testnative
+ip -6 addr add 2001:db8::2/64 dev testnative nodad
 ip link set testnative up
 ip route add default via 192.0.2.1
+ip -6 route add default via 2001:db8::1
 before=$(ip route show table main)
 sh "$SCRIPT" start
 [ "$(ip route show table main)" = "$before" ]
@@ -33,6 +36,28 @@ ip route get 1.1.1.1 | grep -q 'testnative'
 if sh "$SCRIPT" start; then echo 'duplicate start accepted'; exit 1; fi
 ip link show wywarp >/dev/null
 sh "$SCRIPT" restart
+sh "$SCRIPT" _proxy-route-on hybrid
+ip route get 1.1.1.1 mark 51890 | grep -q 'dev wywarp'
+ip -6 route get 2606:4700:4700::1111 mark 51890 | grep -q 'dev testnative'
+ip route get 192.0.2.3 mark 51890 | grep -q 'dev testnative'
+ip route get 1.1.1.1 | grep -q 'testnative'
+sh "$SCRIPT" stop
+if ip route get 1.1.1.1 mark 51890 >/dev/null 2>&1; then echo 'mark leaked after WARP stop'; exit 1; fi
+sh "$SCRIPT" start
+ip route get 1.1.1.1 mark 51890 | grep -q 'dev wywarp'
+# With no native IPv4 default route, marked IPv4 still has a WARP route.
+ip route del default via 192.0.2.1
+ip route get 1.1.1.1 mark 51890 | grep -q 'dev wywarp'
+if ip route get 1.1.1.1 >/dev/null 2>&1; then exit 1; fi
+ip route add default via 192.0.2.1
+sh "$SCRIPT" _proxy-route-off
+sh "$SCRIPT" _proxy-route-on all
+ip -6 route get 2606:4700:4700::1111 mark 51890 | grep -q 'dev wywarp'
+sh "$SCRIPT" stop
+if ip -6 route get 2606:4700:4700::1111 mark 51890 >/dev/null 2>&1; then echo 'IPv6 mark leaked'; exit 1; fi
+ip -6 route get 2606:4700:4700::1111 | grep -q 'dev testnative'
+sh "$SCRIPT" start
+sh "$SCRIPT" _proxy-route-off
 sh "$SCRIPT" stop
 sh "$SCRIPT" stop
 if ip link show wywarp >/dev/null 2>&1; then exit 1; fi

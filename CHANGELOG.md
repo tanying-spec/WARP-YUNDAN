@@ -1,5 +1,15 @@
 # 更新记录
 
+## v1.1.0
+
+- 增加可选 `proxy attach/status/check/detach`，支持 Mihomo / sing-box 单文件直连出口服务端配置。
+- `hybrid` 使用原生 IPv6 优先＋WARP IPv4；`all` 使用 WARP 双栈出口。原生系统默认路由不变。
+- 原始配置备份、核心配置预检、原子替换、通过代理的 HTTPS 检查及失败回滚。
+- OpenRC/systemd 启动依赖、WARP 停止后禁止标记流量回落、外部配置变更保护。
+- 新增带密码的本地诊断入口，撤销时随原配置恢复而移除。
+- 已安装版本重新运行安装命令时更新管理脚本，不重新注册账号。
+- Alpine 3.23 amd64 LXC：Mihomo 1.19.30 与 sing-box 1.14.1 musl 的 hybrid / all 接入、HTTPS 检查及撤销均通过实测。生产代理配置未改动。
+
 ## v1.0.0
 
 - 内核 WireGuard 独立出口，原生路由、DNS、现有代理不变。
