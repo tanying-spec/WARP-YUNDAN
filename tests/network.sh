@@ -1,6 +1,6 @@
 #!/bin/sh
 # Run ONLY on an ephemeral CI/test host in a private network namespace.
-set -eu
+set -eux
 [ "$(id -u)" = 0 ] || exit 1
 [ ! -e /etc/warp-yundan ] || { echo 'Refusing to overwrite existing config'; exit 1; }
 SCRIPT=$(pwd)/install.sh
