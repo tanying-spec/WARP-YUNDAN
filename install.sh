@@ -142,7 +142,7 @@ vacant() {
 }
 legacy_warp_conflict() {
     [ -s "$DIR/tunnel.conf" ] || return 0
-    private=$(awk -F= '/^[[:space:]]*PrivateKey[[:space:]]*=/ {gsub(/[[:space:]]/, "", $2); print $2; exit}' "$DIR/tunnel.conf")
+    private=$(awk '/^[[:space:]]*PrivateKey[[:space:]]*=/ {sub(/^[^=]*=/, ""); gsub(/[[:space:]]/, ""); print; exit}' "$DIR/tunnel.conf")
     [ -n "$private" ] || return 0
     expected_public=$(printf '%s\n' "$private" | wg pubkey 2>/dev/null) || return 0
     for candidate in $(wg show interfaces 2>/dev/null); do
