@@ -197,8 +197,11 @@ def command(args, timeout=30):
 def atomic(path, data, mode=0o600, uid=None, gid=None):
     fd, temporary = tempfile.mkstemp(prefix='.wy-', dir=path.parent)
     try:
-        os.fchmod(fd, mode)
-        if uid is not None:
+        if hasattr(os, 'fchmod'):
+            os.fchmod(fd, mode)
+        else:
+            os.chmod(temporary, mode)
+        if uid is not None and hasattr(os, 'fchown'):
             os.fchown(fd, uid, gid)
         with os.fdopen(fd, 'wb') as stream:
             stream.write(data)
@@ -220,7 +223,7 @@ def load_state():
     return json.loads(STATE.read_bytes())
 
 
-def discover(engine=None, config=None):
+def discover_all(engine=None, config=None):
     found = []
     for path in Path('/proc').iterdir():
         if not path.name.isdigit():
@@ -256,6 +259,11 @@ def discover(engine=None, config=None):
                           'workdir': str(workdir), 'pid': int(path.name)})
         except (OSError, UnicodeError):
             continue
+    return sorted(found, key=lambda item: (item['engine'], item['config'], item['pid']))
+
+
+def discover(engine=None, config=None):
+    found = discover_all(engine, config)
     if len(found) != 1:
         raise Error('无法唯一识别正在运行的单文件代理；请指定 --engine 和 --config。不支持配置目录合并或容器内代理。')
     return found[0]
@@ -455,6 +463,9 @@ def attach(args):
 
 
 def main():
+    if len(sys.argv) == 1 or (len(sys.argv) == 2 and sys.argv[1] == 'proxy'):
+        interactive()
+        return
     parser = argparse.ArgumentParser(description='可选接入直连出口的单文件服务端代理')
     sub = parser.add_subparsers(dest='action', required=True)
     p = sub.add_parser('attach')
@@ -478,11 +489,67 @@ def main():
         elif args.action == 'check':
             check_unchanged(state)
             health(state)
+            print('检查通过，代理接入仍然有效。')
         else:
             check_unchanged(state)
             validate(state, Path(state['backup']) / 'config.original')
             restore(state)
             print('已恢复原配置和服务，移除代理专用路由；WARP 独立出口继续保留。备份：' + state['backup'])
+
+
+def interactive():
+    """Small, explicit menu for people who do not want to remember flags."""
+    print('WARP-YUNDAN 代理接入')
+    print('1) 接入现有代理')
+    print('2) 查看接入状态')
+    print('3) 重新检查')
+    print('4) 撤销接入（恢复原配置）')
+    print('0) 退出')
+    choice = input('请选择 [0-4]: ').strip()
+    if choice == '0':
+        return
+    if choice in ('2', '3', '4'):
+        action = {'2': 'status', '3': 'check', '4': 'detach'}[choice]
+        main_argv = [sys.argv[0], action]
+        old = sys.argv
+        try:
+            sys.argv = main_argv
+            main()
+        finally:
+            sys.argv = old
+        return
+    if choice != '1':
+        raise Error('无效选择。')
+    candidates = discover_all()
+    if not candidates:
+        raise Error('没有识别到正在运行的 Mihomo 或 sing-box 单文件代理。')
+    if len(candidates) == 1:
+        state = candidates[0]
+    else:
+        print('检测到多个代理实例：')
+        for index, item in enumerate(candidates, 1):
+            print(f'{index}) {item["engine"]} / {item["config"]} (PID {item["pid"]})')
+        selected = input(f'请选择实例 [1-{len(candidates)}]: ').strip()
+        if not selected.isdigit() or not 1 <= int(selected) <= len(candidates):
+            raise Error('无效实例。')
+        state = candidates[int(selected) - 1]
+    default_service = state['engine']
+    print(f'已识别：{state["engine"]}，配置：{state["config"]}')
+    service_name = input(f'服务名 [默认 {default_service}]: ').strip() or default_service
+    print('1) hybrid：IPv6 优先原生，IPv4 走 WARP（推荐 IPv6-only）')
+    print('2) all：IPv4、IPv6 都走 WARP')
+    mode_choice = input('请选择模式 [1-2，默认 1]: ').strip() or '1'
+    if mode_choice not in ('1', '2'):
+        raise Error('无效模式。')
+    mode = 'hybrid' if mode_choice == '1' else 'all'
+    dry = input('先只预检、不修改配置？[y/N]: ').strip().lower() == 'y'
+    if not dry:
+        answer = input(f'将备份并修改 {state["config"]}，重启 {state["engine"]}。继续？[y/N]: ').strip().lower()
+        if answer != 'y':
+            print('已取消，没有修改。')
+            return
+    attach(argparse.Namespace(engine=state['engine'], config=state['config'],
+                              service=service_name, mode=mode, dry_run=dry))
 
 
 if __name__ == '__main__':

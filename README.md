@@ -68,6 +68,14 @@ systemctl start warp-yundan
 
 先安装 WARP，然后执行：
 
+最简单的交互方式是：
+
+```sh
+warp-yundan proxy
+```
+
+菜单会让你选择现有代理、服务名、`hybrid` / `all` 模式，并在真正修改前要求确认；存在多个运行实例时会列出供选择。选择“只预检”可先验证配置而不重启服务。
+
 ```sh
 # 推荐给 IPv6-only 服务器：域名优先原生 IPv6，IPv4 连接走 WARP
 warp-yundan proxy attach --mode hybrid

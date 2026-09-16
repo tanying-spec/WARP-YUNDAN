@@ -109,6 +109,37 @@ class ProxyTests(unittest.TestCase):
                 command.assert_not_called()
                 self.assertTrue(journal.exists())
 
+    def test_interactive_status_dispatches_without_extra_proxy_argument(self):
+        old = p.sys.argv
+        seen = []
+        try:
+            p.sys.argv = ['proxy.py']
+            with patch('builtins.input', return_value='2'), \
+                    patch.object(p.os, 'geteuid', return_value=0, create=True), \
+                    patch.object(p, 'load_state', return_value={
+                        'engine': 'mihomo', 'mode': 'hybrid', 'service': 'mihomo',
+                        'config': '/etc/mihomo/config.yaml', 'status': 'active',
+                        'backup': '/tmp/backup'}), \
+                    patch.object(p.json, 'dumps', side_effect=lambda value, **kwargs: seen.append(value) or '{}'):
+                p.interactive()
+        finally:
+            p.sys.argv = old
+        self.assertEqual(seen[0]['status'], 'active')
+
+    def test_interactive_can_select_one_of_multiple_instances(self):
+        candidates = [
+            {'engine': 'mihomo', 'config': '/one.yaml', 'pid': 10},
+            {'engine': 'sing-box', 'config': '/two.json', 'pid': 20},
+        ]
+        answers = iter(['1', '2', 'custom-mihomo', '1', 'y'])
+        with patch('builtins.input', side_effect=lambda prompt='': next(answers)), \
+                patch.object(p, 'discover_all', return_value=candidates), \
+                patch.object(p, 'attach') as attach:
+            p.interactive()
+        args = attach.call_args.args[0]
+        self.assertEqual((args.engine, args.config, args.service, args.mode, args.dry_run),
+                         ('sing-box', '/two.json', 'custom-mihomo', 'hybrid', True))
+
 
 if __name__ == '__main__':
     unittest.main()
