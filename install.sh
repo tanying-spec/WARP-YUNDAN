@@ -148,6 +148,7 @@ configure_tunnel() {
     endpoint=$(cat "$DIR/endpoint")
     listen_port=$(cat "$DIR/listen-port")
     case "$listen_port" in ''|*[!0-9]*) return 1 ;; esac
+    [ "${#listen_port}" -le 5 ] && [ "$listen_port" -le 65535 ] || return 1
     wg set "$IFACE" listen-port "$listen_port" peer "$peer" endpoint "$endpoint" persistent-keepalive 25 || return 1
     addresses=$(cat "$DIR/addresses")
     for addr in $addresses; do
