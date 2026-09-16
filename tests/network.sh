@@ -30,6 +30,7 @@ wg set legacy-warp private-key "$keyfile"
 rm -f "$keyfile"
 if sh "$SCRIPT" start; then echo 'duplicate WARP identity accepted'; exit 1; fi
 ip link del legacy-warp
+echo 'PASS: duplicate WARP identity rejected'
 ip link add testnative type dummy
 ip addr add 192.0.2.2/24 dev testnative
 ip -6 addr add 2001:db8::2/64 dev testnative nodad
@@ -42,6 +43,7 @@ mkdir /tmp/warp-yundan-test-menu
 ln -s "$SCRIPT" /tmp/warp-yundan-test-menu/wy
 [ "$(printf '5\n' | /tmp/warp-yundan-test-menu/wy | grep -c '^interface: wywarp$')" -eq 1 ]
 rm -rf -- /tmp/warp-yundan-test-menu
+echo 'PASS: wy unified menu dispatches raw status'
 [ "$(ip route show table main)" = "$before" ]
 ip route get 1.1.1.1 oif wywarp | grep -q 'table 51889'
 ip -6 route get 2606:4700:4700::1111 oif wywarp | grep -q 'table 51889'
