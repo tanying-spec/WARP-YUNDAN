@@ -1,0 +1,12 @@
+name: Shell and routing checks
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y shellcheck wireguard-tools iproute2
+      - run: sh -n install.sh && shellcheck -s sh install.sh tests/network.sh
+      - run: sudo unshare --net sh tests/network.sh

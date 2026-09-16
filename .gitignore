@@ -1,0 +1,6 @@
+*.conf
+*.toml
+*.log
+*.key
+wgcf*
+__pycache__/
