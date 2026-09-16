@@ -217,7 +217,7 @@ proxy_routes_off() {
     rm -f "$DIR/proxy-mode" "$DIR/proxy-routing-owned"
 }
 proxy_dispatch() {
-    owned && [ -f "$DIR/installed" ] || die '请先安装 WARP-YUNDAN。'
+    if ! owned || [ ! -f "$DIR/installed" ]; then die '请先安装 WARP-YUNDAN。'; fi
     if ! command -v python3 >/dev/null 2>&1 || ! python3 -c 'import yaml' >/dev/null 2>&1; then
         if command -v apk >/dev/null 2>&1; then apk add --no-cache python3 py3-yaml
         elif command -v apt-get >/dev/null 2>&1; then apt-get update && apt-get install -y --no-install-recommends python3 python3-yaml
@@ -355,7 +355,7 @@ install() {
 }
 uninstall() {
     owned || die '没有属于本项目的安装。'
-    [ ! -e "$DIR/proxy-state.json" ] && [ ! -e "$DIR/proxy-mode" ] || die '请先执行 warp-yundan proxy detach。'
+    if [ -e "$DIR/proxy-state.json" ] || [ -e "$DIR/proxy-mode" ]; then die '请先执行 warp-yundan proxy detach。'; fi
     stop_tunnel
     if [ -f "$DIR/service-owned" ]; then
         if command -v rc-update >/dev/null 2>&1; then
