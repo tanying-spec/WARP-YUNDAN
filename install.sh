@@ -1,7 +1,7 @@
 #!/bin/sh
 # WARP-YUNDAN: independent kernel WireGuard egress, not a default-route VPN.
 set -efu
-VERSION=1.1.1
+VERSION=1.2.0
 HELPER_SHA256=6bb1e34fa017730e4be488526c7508a6894dc690a61e3bb2c1ed42958de86410
 DIR=/etc/warp-yundan
 BIN=/usr/local/sbin/warp-yundan
@@ -140,8 +140,22 @@ vacant() {
         ! ip "$family" rule show | grep -q "^$PREF:" || die "规则优先级 $PREF 被占用。"
     done
 }
+legacy_warp_conflict() {
+    [ -s "$DIR/tunnel.conf" ] || return 0
+    private=$(awk -F= '/^[[:space:]]*PrivateKey[[:space:]]*=/ {gsub(/[[:space:]]/, "", $2); print $2; exit}' "$DIR/tunnel.conf")
+    [ -n "$private" ] || return 0
+    expected_public=$(printf '%s\n' "$private" | wg pubkey 2>/dev/null) || return 0
+    for candidate in $(wg show interfaces 2>/dev/null); do
+        [ "$candidate" = "$IFACE" ] && continue
+        actual_public=$(wg show "$candidate" public-key 2>/dev/null || true)
+        if [ -n "$actual_public" ] && [ "$actual_public" = "$expected_public" ]; then
+            die "发现旧 WireGuard/WARP 接口 $candidate 使用相同账号。请先停止并禁用旧服务，再重试；不会自动改动它。"
+        fi
+    done
+}
 start_tunnel() {
     owned || die '未找到本项目配置，请先安装。'
+    legacy_warp_conflict
     vacant
     ip link add "$IFACE" type wireguard || die '无法创建内核 WireGuard 接口：需宿主机支持 WireGuard，并授予 CAP_NET_ADMIN。有 TUN 设备不代表满足条件。'
     if ! ip link set dev "$IFACE" alias WARP-YUNDAN-v1; then
@@ -251,6 +265,74 @@ health() {
     if ! probe_family -6; then say 'IPv6 未通过；原生 IPv6 不受影响。'; fi
     [ "$pass4" = 1 ]
 }
+boot_status() {
+    if command -v rc-update >/dev/null 2>&1; then
+        if rc-update show default 2>/dev/null | grep -Eq '(^|[[:space:]])warp-yundan([[:space:]]|$)'; then say '已启用'; else say '未启用'; fi
+    elif [ -d /run/systemd/system ]; then
+        if systemctl is-enabled warp-yundan.service >/dev/null 2>&1; then say '已启用'; else say '未启用'; fi
+    else
+        say '未知'
+    fi
+}
+handshake_status() {
+    stamp=$(wg show "$IFACE" latest-handshakes 2>/dev/null | awk 'NR==1 {print $2}')
+    case "$stamp" in ''|0|*[!0-9]*) say '尚未握手'; return ;; esac
+    now=$(date +%s); age=$((now - stamp))
+    if [ "$age" -lt 60 ]; then say "${age} 秒前"
+    elif [ "$age" -lt 3600 ]; then say "$((age / 60)) 分钟前"
+    else say "$((age / 3600)) 小时前"; fi
+}
+family_status() {
+    family=$1
+    trace=$(curl "$family" --interface "$IFACE" -fsS --connect-timeout 4 --max-time 7 https://www.cloudflare.com/cdn-cgi/trace 2>/dev/null) || { say '不可用'; return 0; }
+    warp=$(printf '%s\n' "$trace" | awk -F= '$1=="warp" {print $2}')
+    colo=$(printf '%s\n' "$trace" | awk -F= '$1=="colo" {print $2}')
+    case "$warp" in on|plus) say "正常，${colo:-未知地区}，warp=$warp" ;; *) say "异常，warp=${warp:-unknown}" ;; esac
+}
+status_summary() {
+    owned || die '未安装'
+    if interface_owned; then
+        running='运行中'
+        handshake=$(handshake_status)
+        ipv4=$(family_status -4)
+        ipv6=$(family_status -6)
+    else
+        running='已停止'; handshake='无'; ipv4='未检查'; ipv6='未检查'
+    fi
+    if [ -f "$DIR/proxy-state.json" ] && [ -f "$DIR/proxy-mode" ]; then
+        proxy="已接入（$(cat "$DIR/proxy-mode")）"
+    else
+        proxy='未接入'
+    fi
+    say "WARP-YUNDAN v$VERSION"
+    say "服务：$running"
+    say "接口：$IFACE"
+    say "开机启动：$(boot_status)"
+    say "最近握手：$handshake"
+    say "IPv4：$ipv4"
+    say "IPv6：$ipv6"
+    say "代理：$proxy"
+}
+menu() {
+    say "WARP-YUNDAN v$VERSION"
+    say '1) 查看状态'
+    say '2) 检查 WARP'
+    say '3) 管理代理接入'
+    say '4) 重启 WARP'
+    say '5) 查看 WireGuard 原始状态'
+    say '0) 退出'
+    printf '请选择 [0-5]: '
+    read -r choice
+    case "$choice" in
+        0) return ;;
+        1) status_summary ;;
+        2) owned || die '未安装'; health ;;
+        3) lock; proxy_dispatch ;;
+        4) lock; stop_tunnel; start_tunnel; say 'WARP 已重启。' ;;
+        5) owned || die '未安装'; wg show "$IFACE" ;;
+        *) die '无效选择。' ;;
+    esac
+}
 select_endpoint() {
     candidates=
     if ip -6 route get 2606:4700:d0::a29f:c001 >/dev/null 2>&1; then
@@ -328,6 +410,7 @@ install() {
     done
     [ ! -e "$DIR" ] || owned || die "$DIR 已存在但不属于本项目。"
     if [ -e "$DIR/installed" ]; then
+        legacy_warp_conflict
         if [ "$(readlink -f "$0")" != "$BIN" ]; then cp "$0" "$BIN"; chmod 755 "$BIN"; fi
         install_alias
         say "管理命令已更新到 $VERSION，保留原账号、隧道和代理配置。"
@@ -364,7 +447,7 @@ install() {
     COMMITTED=1
     say "安装成功 v$VERSION。接口 $IFACE；仅显式绑定此接口的流量走 WARP。"
     say '测试：curl -4 --interface wywarp https://www.cloudflare.com/cdn-cgi/trace'
-    say '管理：warp-yundan status | check | restart | uninstall'
+    say '管理：运行 wy 进入统一菜单。'
 }
 uninstall() {
     owned || die '没有属于本项目的安装。'
@@ -394,17 +477,20 @@ usage() {
     say "WARP-YUNDAN v$VERSION"
     say '安装：sh install.sh install --accept-tos [--wgcf /path/to/verified-binary]'
     say '导入：sh install.sh install --profile /path/to/wgcf-profile.conf'
-    say '管理：warp-yundan start|stop|restart|status|check|uninstall'
-    say '代理接入：wy（交互菜单）或 warp-yundan proxy attach --mode hybrid|all'
+    say '菜单：wy'
+    say '管理：warp-yundan start|stop|restart|status|status-raw|check|uninstall'
+    say '代理接入：warp-yundan proxy attach --mode hybrid|all'
     say '不提供 SOCKS5 端口，不替换默认路由，不自动接管现有代理。'
 }
 main() {
-    if [ "$#" = 0 ] && [ "$(basename "$0")" = wy ]; then action=proxy; else action=${1:-help}; [ "$#" = 0 ] || shift; fi
+    if [ "$#" = 0 ] && [ "$(basename "$0")" = wy ]; then action=menu; else action=${1:-help}; [ "$#" = 0 ] || shift; fi
     case "$action" in help|--help|-h) usage; return ;; esac
     root_only
     case "$action" in
         check) owned || die '未安装'; health ;;
-        status) owned || die '未安装'; wg show "$IFACE"; say 'WARP 是否可用请执行 warp-yundan check。' ;;
+        menu) menu ;;
+        status) status_summary ;;
+        status-raw) owned || die '未安装'; wg show "$IFACE" ;;
         install) lock; install "$@" ;;
         start) lock; start_tunnel ;;
         stop) lock; stop_tunnel ;;

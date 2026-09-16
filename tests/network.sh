@@ -10,6 +10,7 @@ cleanup() {
     sh "$SCRIPT" stop || true
     rm -f /etc/warp-yundan/owner /etc/warp-yundan/tunnel.conf /etc/warp-yundan/addresses /etc/warp-yundan/endpoint /etc/warp-yundan/listen-port
     rmdir /etc/warp-yundan
+    rm -rf -- /tmp/warp-yundan-test-menu
 }
 trap cleanup EXIT
 umask 077
@@ -21,6 +22,14 @@ printf '172.16.0.2/32 2606:4700:110::123/128\n' >/etc/warp-yundan/addresses
 printf '127.0.0.1:2408\n' >/etc/warp-yundan/endpoint
 printf '0\n' >/etc/warp-yundan/listen-port
 ip link set lo up
+# Refuse another interface using the same WARP identity.
+ip link add legacy-warp type wireguard
+keyfile=$(mktemp)
+printf '%s\n' "$private" >"$keyfile"
+wg set legacy-warp private-key "$keyfile"
+rm -f "$keyfile"
+if sh "$SCRIPT" start; then echo 'duplicate WARP identity accepted'; exit 1; fi
+ip link del legacy-warp
 ip link add testnative type dummy
 ip addr add 192.0.2.2/24 dev testnative
 ip -6 addr add 2001:db8::2/64 dev testnative nodad
@@ -29,6 +38,10 @@ ip route add default via 192.0.2.1
 ip -6 route add default via 2001:db8::1
 before=$(ip route show table main)
 sh "$SCRIPT" start
+mkdir /tmp/warp-yundan-test-menu
+ln -s "$SCRIPT" /tmp/warp-yundan-test-menu/wy
+[ "$(printf '5\n' | /tmp/warp-yundan-test-menu/wy | grep -c '^interface: wywarp$')" -eq 1 ]
+rm -rf -- /tmp/warp-yundan-test-menu
 [ "$(ip route show table main)" = "$before" ]
 ip route get 1.1.1.1 oif wywarp | grep -q 'table 51889'
 ip -6 route get 2606:4700:4700::1111 oif wywarp | grep -q 'table 51889'
